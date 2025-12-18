@@ -1,9 +1,41 @@
 import os
 import pathlib
 import warnings
+from collections import defaultdict
 
 import graph_tool
 import torch
+
+# added from Copilot to try and kill wandb (api) errors
+import sys
+import types
+
+# Create a fake wandb module
+mock_wandb = types.ModuleType("wandb")
+
+# Create a dummy _sentry object
+class DummySentry:
+    def configure_scope(self, *args, **kwargs):
+        return None
+
+mock_wandb._sentry = DummySentry()
+
+# Add other dummy functions
+# mock_wandb.__getattr__ = lambda *args, **kwargs: lambda *args, **kwargs: None
+mock_wandb.init = lambda *args, **kwargs: None
+mock_wandb.login = lambda *args, **kwargs: None
+mock_wandb.log = lambda *args, **kwargs: None
+mock_wandb.watch = lambda *args, **kwargs: None
+mock_wandb.finish = lambda *args, **kwargs: None
+mock_wandb.Settings = lambda *args, **kwargs: None
+mock_wandb.save = lambda *args, **kwargs: None
+mock_wandb.run = lambda *args, **kwargs: None
+mock_wandb.Video = lambda *args, **kwargs: None
+mock_wandb.Image = lambda *args, **kwargs: None
+mock_wandb.run.summary = defaultdict()
+
+# Inject into sys.modules
+sys.modules["wandb"] = mock_wandb
 
 torch.cuda.empty_cache()
 import hydra
@@ -32,6 +64,9 @@ def main(cfg: DictConfig):
         "comm20",
         "planar",
         "tree",
+        "mysbm",
+        "myplanar",
+        "mydcsbm",
     ]:
         from analysis.visualization import NonMolecularVisualization
         from datasets.spectre_dataset import (
@@ -46,11 +81,11 @@ def main(cfg: DictConfig):
         )
 
         datamodule = SpectreGraphDataModule(cfg)
-        if dataset_config["name"] == "sbm":
+        if dataset_config["name"] in ("sbm", "mysbm", "mydcsbm"):
             sampling_metrics = SBMSamplingMetrics(datamodule)
         elif dataset_config["name"] == "comm20":
             sampling_metrics = Comm20SamplingMetrics(datamodule)
-        elif dataset_config["name"] == "planar":
+        elif dataset_config["name"] in ("planar", "myplanar"):
             sampling_metrics = PlanarSamplingMetrics(datamodule)
         elif dataset_config["name"] == "tree":
             sampling_metrics = TreeSamplingMetrics(datamodule)
@@ -172,7 +207,6 @@ def main(cfg: DictConfig):
             extra_features=extra_features,
             domain_features=domain_features,
         )
-
     else:
         raise NotImplementedError("Unknown dataset {}".format(cfg["dataset"]))
 

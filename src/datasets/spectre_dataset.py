@@ -3,6 +3,7 @@ import pathlib
 import pickle as pkl
 import zipfile
 
+import numpy as np
 from networkx import to_numpy_array
 
 import torch
@@ -22,12 +23,16 @@ class SpectreGraphDataset(InMemoryDataset):
         transform=None,
         pre_transform=None,
         pre_filter=None,
+        seed=1,
+        n_graphs=200,
     ):
         self.sbm_file = "sbm_200.pt"
         self.planar_file = "planar_64_200.pt"
         self.comm20_file = "community_12_21_100.pt"
         self.dataset_name = dataset_name
         self.split = split
+        self.seed = seed
+        self.num_graphs = n_graphs
         super().__init__(root, transform, pre_transform, pre_filter)
         self.data, self.slices = torch.load(self.processed_paths[0])
         self.num_graphs = len(self.data.n_nodes)
@@ -56,6 +61,9 @@ class SpectreGraphDataset(InMemoryDataset):
             raw_url = "https://raw.githubusercontent.com/tufts-ml/graph-generation-EDGE/main/graphs/Ego.pkl"
         elif self.dataset_name == "imdb":
             raw_url = "https://www.chrsmrrs.com/graphkerneldatasets/IMDB-BINARY.zip"
+        elif "my" in self.dataset_name:
+            raw_url = ""
+            download_url = lambda *args: None
         else:
             raise ValueError(f"Unknown dataset {self.dataset_name}")
         file_path = download_url(raw_url, self.raw_dir)
@@ -79,6 +87,31 @@ class SpectreGraphDataset(InMemoryDataset):
                 torch.Tensor(to_numpy_array(graph)).fill_diagonal_(0)
                 for graph in test_data
             ]
+        elif self.dataset_name in ("mytree", "mysbm", "mydcsbm", "myplanar"):
+            if "planar" in self.dataset_name:
+                n = 64
+            elif "sbm" in self.dataset_name:
+                n = 200
+            with open(f"{self.root}/s={self.seed}_N={self.num_graphs}_n={n}_fixed.npy", "rb") as f:
+                dataset = np.load(f, allow_pickle=True)
+            test_data = dataset[-self.num_graphs // 5:]
+            train_and_val_data = dataset[:self.num_graphs // 5 * 4]
+            val_data = train_and_val_data[-(self.num_graphs // 5 * 4)//5:]
+            train_data = train_and_val_data[:(self.num_graphs // 5 * 4)//5*4]
+
+            train_data = [
+                torch.Tensor(to_numpy_array(graph)).fill_diagonal_(0)
+                for graph in train_data
+            ]
+            val_data = [
+                torch.Tensor(to_numpy_array(graph)).fill_diagonal_(0)
+                for graph in val_data
+            ]
+            test_data = [
+                torch.Tensor(to_numpy_array(graph)).fill_diagonal_(0)
+                for graph in test_data
+            ]
+
         else:
             if self.dataset_name == "ego":
                 networks = pkl.load(open(file_path, "rb"))
@@ -222,13 +255,13 @@ class SpectreGraphDataModule(AbstractDataModule):
 
         datasets = {
             "train": SpectreGraphDataset(
-                dataset_name=self.cfg.dataset.name, split="train", root=root_path
+                dataset_name=self.cfg.dataset.name, split="train", root=root_path, n_graphs=n_graphs
             ),
             "val": SpectreGraphDataset(
-                dataset_name=self.cfg.dataset.name, split="val", root=root_path
+                dataset_name=self.cfg.dataset.name, split="val", root=root_path, n_graphs=n_graphs
             ),
             "test": SpectreGraphDataset(
-                dataset_name=self.cfg.dataset.name, split="test", root=root_path
+                dataset_name=self.cfg.dataset.name, split="test", root=root_path, n_graphs=n_graphs
             ),
         }
 

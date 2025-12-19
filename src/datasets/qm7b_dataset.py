@@ -17,6 +17,7 @@ from torch_geometric.data import (
     extract_zip,
 )
 from torch_geometric.utils import subgraph
+from torch_geometric.datasets import QM7b
 
 import utils as utils
 from datasets.abstract_dataset import MolecularDataModule, AbstractDatasetInfos
@@ -72,13 +73,13 @@ class SelectBothTransform:
         return data
 
 
-class QM9Dataset(InMemoryDataset):
-    raw_url = (
-        "https://deepchemdata.s3-us-west-1.amazonaws.com/datasets/"
-        "molnet_publish/qm9.zip"
-    )
-    raw_url2 = "https://ndownloader.figshare.com/files/3195404"
-    processed_url = "https://data.pyg.org/datasets/qm9_v3.zip"
+class QM7bDataset(QM7b):
+    # raw_url = (
+    #     "https://deepchemdata.s3-us-west-1.amazonaws.com/datasets/"
+    #     "molnet_publish/qm7b.zip"
+    # )
+    # raw_url2 = "https://ndownloader.figshare.com/files/3195404"
+    # processed_url = "https://data.pyg.org/datasets/qm7b.zip"
 
     def __init__(
         self,
@@ -90,7 +91,7 @@ class QM9Dataset(InMemoryDataset):
         transform=None,
         pre_transform=None,
         pre_filter=None,
-        seed=1,
+        force_reload=True,
     ):
         self.target_prop = target_prop
         self.stage = stage
@@ -102,13 +103,14 @@ class QM9Dataset(InMemoryDataset):
         else:
             self.file_idx = 2
         self.remove_h = remove_h
-        self.seed = seed
-        super().__init__(root, transform, pre_transform, pre_filter)
+        super().__init__(
+            root, transform, pre_transform, pre_filter
+        )  # , force_reload=force_reload)
         self.data, self.slices = torch.load(self.processed_paths[self.file_idx])
 
-    @property
-    def raw_file_names(self):
-        return ["gdb9.sdf", "gdb9.sdf.csv", "uncharacterized.txt"]
+    # @property
+    # def raw_file_names(self):
+    #     return ["gdb9.sdf", "gdb9.sdf.csv", "uncharacterized.txt"]
 
     @property
     def split_file_name(self):
@@ -128,48 +130,96 @@ class QM9Dataset(InMemoryDataset):
         else:
             return ["proc_tr_h.pt", "proc_val_h.pt", "proc_test_h.pt"]
 
-    def download(self):
-        """
-        Download raw qm9 files. Taken from PyG QM9 class
-        """
-        try:
-            import rdkit  # noqa
+    # def download(self):
+    #     """
+    #     Download raw qm7b files. Taken from PyG QM7b class
+    #     """
+    #     # try:
+    #     #     import rdkit  # noqa
 
-            file_path = download_url(self.raw_url, self.raw_dir)
-            extract_zip(file_path, self.raw_dir)
-            os.unlink(file_path)
+    #     #     file_path = download_url(self.raw_url, self.raw_dir)
+    #     #     extract_zip(file_path, self.raw_dir)
+    #     #     os.unlink(file_path)
 
-            file_path = download_url(self.raw_url2, self.raw_dir)
-            os.rename(
-                osp.join(self.raw_dir, "3195404"),
-                osp.join(self.raw_dir, "uncharacterized.txt"),
-            )
-        except ImportError:
-            path = download_url(self.processed_url, self.raw_dir)
-            extract_zip(path, self.raw_dir)
-            os.unlink(path)
+    #     #     file_path = download_url(self.raw_url2, self.raw_dir)
+    #     #     os.rename(
+    #     #         osp.join(self.raw_dir, "3195404"),
+    #     #         osp.join(self.raw_dir, "uncharacterized.txt"),
+    #     #     )
+    #     # except ImportError:
+    #     #     path = download_url(self.processed_url, self.raw_dir)
+    #     #     extract_zip(path, self.raw_dir)
+    #     #     os.unlink(path)
 
-        if files_exist(self.split_paths):
-            return
+    #     # if files_exist(self.split_paths):
+    #     #     return
+    #     dataset = QM7b(
+    #         root=f"/data/qm7b",
+    #         force_reload=True,
+    #     )
 
-        dataset = pd.read_csv(self.raw_paths[1])
+    #     dataset = pd.read_csv(self.raw_paths[1])
 
-        n_samples = len(dataset)
-        n_train = 100000
-        n_test = int(0.1 * n_samples)
-        n_val = n_samples - (n_train + n_test)
+    #     n_samples = len(dataset)
+    #     n_train = 100000
+    #     n_test = int(0.1 * n_samples)
+    #     n_val = n_samples - (n_train + n_test)
 
-        # Shuffle dataset with df.sample, then split
-        train, val, test = np.split(
-            dataset.sample(frac=1, random_state=self.seed),
-            [n_train, n_val + n_train],
-        )
+    #     # Shuffle dataset with df.sample, then split
+    #     train, val, test = np.split(
+    #         dataset.sample(frac=1, random_state=42), [n_train, n_val + n_train]
+    #     )
 
-        train.to_csv(os.path.join(self.raw_dir, "train.csv"))
-        val.to_csv(os.path.join(self.raw_dir, "val.csv"))
-        test.to_csv(os.path.join(self.raw_dir, "test.csv"))
+    #     train.to_csv(os.path.join(self.raw_dir, "train.csv"))
+    #     val.to_csv(os.path.join(self.raw_dir, "val.csv"))
+    #     test.to_csv(os.path.join(self.raw_dir, "test.csv"))
 
     def process(self):
+        from scipy.io import loadmat
+
+        data = loadmat(self.raw_paths[0])
+
+        n_samples = data["X"].shape[0]
+        n_train = n_samples * 4 // 5
+        n_test = int(0.1 * n_samples)
+        n_val = n_samples - (n_train + n_test)
+        tr_idx, val_idx, test_idx = np.split(
+            np.arange(n_samples), [n_train, n_val + n_train]
+        )
+        idx = {0: tr_idx, 1: val_idx, 2: test_idx}
+
+        X = data["X"][idx[self.file_idx]]
+        T = data["T"][idx[self.file_idx]]
+
+        coulomb_matrix = torch.from_numpy(X)
+        target = torch.from_numpy(T).to(torch.float)
+
+        data_list = []
+        for i in range(target.shape[0]):
+            edge_index = (
+                coulomb_matrix[i].nonzero(as_tuple=False).t().contiguous()
+            )
+            edge_attr = coulomb_matrix[i, edge_index[0], edge_index[1]]
+            y = target[i].view(1, -1)
+            # x = F.one_hot(
+            #     torch.tensor(type_idx), num_classes=len(types)
+            # ).float()
+            x = torch.as_tensor(np.diag(coulomb_matrix[i]))
+            data = Data(
+                edge_index=edge_index, edge_attr=edge_attr, y=y, x=x, idx=i
+            )
+            data.num_nodes = int(edge_index.max()) + 1
+            data_list.append(data)
+
+        if self.pre_filter is not None:
+            data_list = [d for d in data_list if self.pre_filter(d)]
+
+        if self.pre_transform is not None:
+            data_list = [self.pre_transform(d) for d in data_list]
+
+        torch.save(self.collate(data_list), self.processed_paths[self.file_idx])
+
+    def __process(self):
         RDLogger.DisableLog("rdApp.*")
 
         types = {"H": 0, "C": 1, "N": 2, "O": 3, "F": 4}
@@ -251,7 +301,7 @@ class QM9Dataset(InMemoryDataset):
         torch.save(self.collate(data_list), self.processed_paths[self.file_idx])
 
 
-class QM9DataModule(MolecularDataModule):
+class QM7bDataModule(MolecularDataModule):
     def __init__(self, cfg):
         self.datadir = cfg.dataset.datadir
         self.remove_h = cfg.dataset.remove_h
@@ -271,7 +321,7 @@ class QM9DataModule(MolecularDataModule):
         base_path = pathlib.Path(os.path.realpath(__file__)).parents[2]
         root_path = os.path.join(base_path, self.datadir)
         datasets = {
-            "train": QM9Dataset(
+            "train": QM7bDataset(
                 stage="train",
                 root=root_path,
                 remove_h=cfg.dataset.remove_h,
@@ -279,7 +329,7 @@ class QM9DataModule(MolecularDataModule):
                 target_prop=target,
                 transform=transform,
             ),
-            "val": QM9Dataset(
+            "val": QM7bDataset(
                 stage="val",
                 root=root_path,
                 remove_h=cfg.dataset.remove_h,
@@ -287,7 +337,7 @@ class QM9DataModule(MolecularDataModule):
                 target_prop=target,
                 transform=transform,
             ),
-            "test": QM9Dataset(
+            "test": QM7bDataset(
                 stage="test",
                 root=root_path,
                 remove_h=cfg.dataset.remove_h,
@@ -307,7 +357,7 @@ class QM9DataModule(MolecularDataModule):
         super().__init__(cfg, datasets)
 
 
-class QM9infos(AbstractDatasetInfos):
+class QM7bInfos(AbstractDatasetInfos):
     def __init__(self, datamodule, cfg, recompute_statistics=False):
         self.remove_h = cfg.dataset.remove_h
         self.aromatic = cfg.dataset.aromatic
@@ -317,7 +367,7 @@ class QM9infos(AbstractDatasetInfos):
         # if cfg.general.conditional:
         #     self.test_labels = datasets["test"].data.y
 
-        self.name = "qm9"
+        self.name = "qm7b"
         if self.remove_h:
             self.atom_encoder = {"C": 0, "N": 1, "O": 2, "F": 3}
             self.atom_decoder = ["C", "N", "O", "F"]
@@ -443,152 +493,3 @@ class QM9infos(AbstractDatasetInfos):
             np.savetxt("valencies.txt", valencies.numpy())
             self.valency_distribution = valencies
             assert False
-
-
-def get_smiles(cfg, datamodule, dataset_infos, evaluate_datasets=False):
-
-    return {
-        "train": get_loader_smiles(
-            cfg,
-            datamodule.train_dataloader(),
-            dataset_infos,
-            "train",
-            evaluate_dataset=evaluate_datasets,
-        ),
-        "val": get_loader_smiles(
-            cfg,
-            datamodule.val_dataloader(),
-            dataset_infos,
-            "val",
-            evaluate_dataset=evaluate_datasets,
-        ),
-        "test": get_loader_smiles(
-            cfg,
-            datamodule.test_dataloader(),
-            dataset_infos,
-            "test",
-            evaluate_dataset=evaluate_datasets,
-        ),
-    }
-
-
-def get_loader_smiles(
-    cfg,
-    dataloader,
-    dataset_infos,
-    split_key,
-    evaluate_dataset=False,
-):
-    datadir = cfg.dataset.datadir
-    remove_h = cfg.dataset.remove_h
-    atom_decoder = dataset_infos.atom_decoder
-    root_dir = pathlib.Path(os.path.realpath(__file__)).parents[2]
-    smiles_file_name = (
-        f"{split_key}_smiles_no_h.npy"
-        if remove_h
-        else f"{split_key}_smiles_h.npy"
-    )
-    smiles_path = os.path.join(root_dir, datadir, smiles_file_name)
-    if os.path.exists(smiles_path):
-        print(f"Dataset {split_key} smiles were found.")
-        smiles = np.load(smiles_path).tolist()
-    else:
-        print(f"Computing dataset {split_key} smiles...")
-        smiles = compute_qm9_smiles(atom_decoder, dataloader, remove_h)
-        np.save(smiles_path, np.array(smiles))
-
-    if evaluate_dataset:
-        # Convert loader to molecules
-        assert (
-            dataset_infos is not None
-        ), "If wanting to evaluate dataset, need to pass dataset_infos"
-        all_molecules = []
-        for i, data in enumerate(dataloader):
-            dense_data, node_mask = utils.to_dense(
-                data.x, data.edge_index, data.edge_attr, data.batch
-            )
-            dense_data = dense_data.mask(node_mask, collapse=True)
-            X, E = dense_data.X, dense_data.E
-
-            for k in range(X.size(0)):
-                n = int(torch.sum((X != -1)[k, :]))
-                atom_types = X[k, :n].cpu()
-                edge_types = E[k, :n, :n].cpu()
-                all_molecules.append([atom_types, edge_types])
-
-        print(
-            "Evaluating the dataset -- number of molecules to evaluate",
-            len(all_molecules),
-        )
-        # load train smiles
-        train_smiles_file_name = (
-            f"train_smiles_no_h.npy" if remove_h else f"train_smiles_h.npy"
-        )
-        train_smiles_path = os.path.join(
-            root_dir, datadir, train_smiles_file_name
-        )
-        train_smiles = np.load(train_smiles_path)
-        # get evaluation and output
-        metrics = compute_molecular_metrics(
-            molecule_list=all_molecules,
-            train_smiles=train_smiles,
-            dataset_info=dataset_infos,
-        )
-        print(metrics[0])
-
-    return smiles
-
-
-def compute_qm9_smiles(atom_decoder, train_dataloader, remove_h):
-    """
-    :param dataset_name: qm9 or qm9_second_half
-    :return:
-    """
-    print(f"\tConverting QM9 dataset to SMILES for remove_h={remove_h}...")
-
-    mols_smiles = []
-    len_train = len(train_dataloader)
-    invalid = 0
-    disconnected = 0
-    for i, data in enumerate(train_dataloader):
-        dense_data, node_mask = utils.to_dense(
-            data.x, data.edge_index, data.edge_attr, data.batch
-        )
-        dense_data = dense_data.mask(node_mask, collapse=True)
-        X, E = dense_data.X, dense_data.E
-
-        n_nodes = [int(torch.sum((X != -1)[j, :])) for j in range(X.size(0))]
-
-        molecule_list = []
-        for k in range(X.size(0)):
-            n = n_nodes[k]
-            atom_types = X[k, :n].cpu()
-            edge_types = E[k, :n, :n].cpu()
-            molecule_list.append([atom_types, edge_types])
-
-        for l, molecule in enumerate(molecule_list):
-            mol = build_molecule_with_partial_charges(
-                molecule[0], molecule[1], atom_decoder
-            )
-            smile = mol2smiles(mol)
-            if smile is not None:
-                mols_smiles.append(smile)
-                mol_frags = Chem.rdmolops.GetMolFrags(
-                    mol, asMols=True, sanitizeFrags=True
-                )
-                if len(mol_frags) > 1:
-                    print("Disconnected molecule", mol, mol_frags)
-                    disconnected += 1
-            else:
-                print("Invalid molecule obtained.")
-                invalid += 1
-
-        if i % 1000 == 0:
-            print(
-                "\tConverting QM9 dataset to SMILES {0:.2%}".format(
-                    float(i) / len_train
-                )
-            )
-    print("Number of invalid molecules", invalid)
-    print("Number of disconnected molecules", disconnected)
-    return mols_smiles

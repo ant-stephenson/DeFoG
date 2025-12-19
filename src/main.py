@@ -13,10 +13,12 @@ import types
 # Create a fake wandb module
 mock_wandb = types.ModuleType("wandb")
 
+
 # Create a dummy _sentry object
 class DummySentry:
     def configure_scope(self, *args, **kwargs):
         return None
+
 
 mock_wandb._sentry = DummySentry()
 
@@ -97,7 +99,9 @@ def main(cfg: DictConfig):
         dataset_infos = SpectreDatasetInfos(datamodule, dataset_config)
 
         train_metrics = TrainAbstractMetricsDiscrete()
-        visualization_tools = NonMolecularVisualization(dataset_name=cfg.dataset.name)
+        visualization_tools = NonMolecularVisualization(
+            dataset_name=cfg.dataset.name
+        )
 
         extra_features = ExtraFeatures(
             cfg.model.extra_features,
@@ -112,12 +116,14 @@ def main(cfg: DictConfig):
             domain_features=domain_features,
         )
 
-    elif dataset_config["name"] in ["qm9", "guacamol", "moses"]:
+    elif dataset_config["name"] in ["qm9", "qm7b", "guacamol", "moses"]:
         from metrics.molecular_metrics import (
             TrainMolecularMetrics,
             SamplingMolecularMetrics,
         )
-        from metrics.molecular_metrics_discrete import TrainMolecularMetricsDiscrete
+        from metrics.molecular_metrics_discrete import (
+            TrainMolecularMetricsDiscrete,
+        )
         from models.extra_features_molecular import ExtraMolecularFeatures
         from analysis.visualization import MolecularVisualization
 
@@ -132,6 +138,19 @@ def main(cfg: DictConfig):
                 dataset_infos=dataset_infos,
                 evaluate_datasets=False,
             )
+        elif "qm7b" in dataset_config["name"]:
+            from datasets import tg_dataset as qm7b_dataset
+
+            datamodule = qm7b_dataset.QM7bDataModule(cfg)
+            dataset_infos = qm7b_dataset.QM7bInfos(
+                datamodule=datamodule, cfg=cfg
+            )
+            # dataset_smiles = qm7b_dataset.get_smiles(
+            #     cfg=cfg,
+            #     datamodule=datamodule,
+            #     dataset_infos=dataset_infos,
+            #     evaluate_datasets=False,
+            # )
         elif dataset_config["name"] == "guacamol":
             from datasets import guacamol_dataset
 
@@ -172,7 +191,10 @@ def main(cfg: DictConfig):
         # We do not evaluate novelty during training
         add_virtual_states = "absorbing" == cfg.model.transition
         sampling_metrics = SamplingMolecularMetrics(
-            dataset_infos, dataset_smiles, cfg, add_virtual_states=add_virtual_states
+            dataset_infos,
+            dataset_smiles,
+            cfg,
+            add_virtual_states=add_virtual_states,
         )
         visualization_tools = MolecularVisualization(
             cfg.dataset.remove_h, dataset_infos=dataset_infos
@@ -200,7 +222,9 @@ def main(cfg: DictConfig):
 
         sampling_metrics = TLSSamplingMetrics(datamodule)
 
-        visualization_tools = NonMolecularVisualization(dataset_name=cfg.dataset.name)
+        visualization_tools = NonMolecularVisualization(
+            dataset_name=cfg.dataset.name
+        )
 
         dataset_infos.compute_input_output_dims(
             datamodule=datamodule,
@@ -249,7 +273,9 @@ def main(cfg: DictConfig):
 
     name = cfg.general.name
     if name == "debug":
-        print("[WARNING]: Run is called 'debug' -- it will run with fast_dev_run. ")
+        print(
+            "[WARNING]: Run is called 'debug' -- it will run with fast_dev_run. "
+        )
 
     use_gpu = cfg.general.gpus > 0 and torch.cuda.is_available()
     trainer = Trainer(
@@ -270,7 +296,9 @@ def main(cfg: DictConfig):
         trainer.fit(model, datamodule=datamodule, ckpt_path=cfg.general.resume)
     else:
         # Start by evaluating test_only_path
-        trainer.test(model, datamodule=datamodule, ckpt_path=cfg.general.test_only)
+        trainer.test(
+            model, datamodule=datamodule, ckpt_path=cfg.general.test_only
+        )
         if cfg.general.evaluate_all_checkpoints:
             directory = pathlib.Path(cfg.general.test_only).parents[0]
             print("Directory:", directory)
@@ -281,7 +309,9 @@ def main(cfg: DictConfig):
                     if ckpt_path == cfg.general.test_only:
                         continue
                     print("Loading checkpoint", ckpt_path)
-                    trainer.test(model, datamodule=datamodule, ckpt_path=ckpt_path)
+                    trainer.test(
+                        model, datamodule=datamodule, ckpt_path=ckpt_path
+                    )
 
 
 if __name__ == "__main__":

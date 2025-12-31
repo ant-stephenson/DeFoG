@@ -1,0 +1,7 @@
+name: 'hiv'
+datadir: '/scratch/hpc/08/stephe40/data'
+remove_h: True
+random_subset: null
+pin_memory: False
+compute_fcd: True                 # Compute FCD scores
+aromatic: True
